@@ -32,176 +32,42 @@ int CMesh::Clip(glm::vec4 plane, ClipMode mode)
 
 The function goes over the mesh and calculates the distance of every vertex relative to the cutting plane, classifying them by positive and negative based on the side they are on; this classification drives everything that follows, no geometry is modified yet but its essential for the following calculations.
 
-```cpp
-int CMesh::ProcessVertices(glm::vec4 plane)
-{
-    // check side
-    glm::vec3 normal = glm::vec3(plane.x, plane.y, plane.z);
-    float c = plane.w;
-    int positive = 0, negative = 0;
-    for (int i = 0; i < m_cVertices.size(); i++)
-    {
-        m_cVertices[i].distance = glm::dot(normal, m_cVertices[i].point) - c;
-        if (m_cVertices[i].distance >= m_testEpsilon)
-        {
-            m_cVertices[i].side = 1;
-            positive++;
-        }
-        else if (m_cVertices[i].distance <= -m_testEpsilon)
-        {
-            m_cVertices[i].side = -1;
-            negative++;
-        }
-        else
-        {
-            m_cVertices[i].side = 0;
-            m_cVertices[i].distance = 0;
-        }
-    }
-
-    if (negative == 0) return 1;
-    if (positive == 0) return -1;
-    else return 0;
-}
-```
-
 ### Process edges
 
 With every vertex classified, edges can be checked. If both endpoints are on the same side the edge stays intact and gets the same label. However when an edge crosses the plane the intersection point is calculated using linear interpolation between the two endpoints based on their signed distances, and a new vertex is inserted there. The edge is then split: one half goes to the positive side, one to the negative, each referencing the new intersection vertex as their shared endpoint. This is what produces the clean cut line across the mesh.
-
-```cpp
-void CMesh::ProcessEdges(ClipMode mode)
-{
-    // check side
-    size_t edgeCount = m_cEdges.size();
-    for (int i = 0; i < edgeCount; i++)
-    {
-        int s0 = m_cVertices[m_cEdges[i].vertices.first].side;
-        int s1 = m_cVertices[m_cEdges[i].vertices.second].side;
-
-        if (s0 == 0 && s1 == 0)
-        {
-            m_cEdges[i].side = 0;
-            continue;
-        }
-
-        if (s0 <= 0 && s1 <= 0)
-        {
-            m_cEdges[i].side = -1;
-            continue;
-        }
-
-        if (s0 >= 0 && s1 >= 0)
-        {
-            m_cEdges[i].side = 1;
-            continue;
-        }
-
-        // edge is cut, replace second vertex with the point on the plane
-        float d0 = m_cVertices[m_cEdges[i].vertices.first].distance;
-        float d1 = m_cVertices[m_cEdges[i].vertices.second].distance;
-        float t = d0 / (d0 - d1);
-
-        glm::vec3 intersect =
-            (1.f - t) * m_cVertices[m_cEdges[i].vertices.first].point + t * m_cVertices[m_cEdges[i].vertices.second].point;
-
-        size_t newVertexIdx = m_cVertices.size();
-        float epsilon = 0.01f;  
-        bool foundExisting = false;
-
-        // check ALL vertices that might be on this edge (not just endpoints)
-        for (size_t v = 0; v < m_cVertices.size(); v++)
-        {
-            if (glm::length(intersect - m_cVertices[v].point) < epsilon)
-            {
-                newVertexIdx = v;
-                foundExisting = true;
-                break;
-            }
-        }
-
-        if (!foundExisting)
-        {
-            m_cVertices.push_back({intersect, 0.0f, 0, 0});
-        }
-
-        CEdge originalEdge = m_cEdges[i];
-
-        if (mode == ClipMode::Positive || mode == ClipMode::Both)
-        {
-            CEdge posEdge = originalEdge; 
-            if (s0 > 0)
-            {
-                posEdge.vertices.second = newVertexIdx;
-                posEdge.side = 1;
-            }
-            else
-            {
-                posEdge.vertices.first = newVertexIdx;
-                posEdge.side = 1;
-            }
-
-            m_cEdges[i] = posEdge;
-        }
-
-        if (mode == ClipMode::Negative || mode == ClipMode::Both)
-        {
-            CEdge negEdge = originalEdge;
-
-            if (s0 > 0)
-            {
-                negEdge.vertices.first = newVertexIdx;
-                negEdge.side = -1;
-            }
-            else
-            {
-                negEdge.vertices.second = newVertexIdx;
-                negEdge.side = -1;
-            }
-
-            size_t negEdgeIdx = m_cEdges.size();
-            m_cEdges.push_back(negEdge);
-
-            for (size_t faceIdx : originalEdge.face)  
-            {
-                if (faceIdx == std::numeric_limits<size_t>::max()) continue;
-                m_cFaces[faceIdx].edge.push_back(negEdgeIdx);
-            }
-        }
-    }
-}
-```
 
 ### Process faces
 
 Once edges are processed, each face is checked to determine which side it belongs to. A face whose vertices are all positive goes to the positive side, all negative goes to the negative side. Faces that were cut by the plane now have a mix of positive and negative edges, so they need to be closed: the cut creates an open boundary along the plane, and a closing edge is added to seal each open face. These closing edges also form the new flat face that sits exactly on the cutting plane, which is what gives each mesh half its interior cap.
 
 ```cpp
+// if the face is open, create an edge to close it
 if (GetOpenPolyline(tempFace, start, final))
 {
-    CEdge closeEdge;
+    Edge closeEdge;
     closeEdge.vertices.first = start;
     closeEdge.vertices.second = final;
     closeEdge.face[0] = i;
     closeEdge.side = side;  
 
-    size_t closeEdgeIdx = m_cEdges.size();
-    m_cEdges.push_back(closeEdge);
+    size_t closeEdgeIdx = Edges.size();
+    Edges.push_back(closeEdge);
 
-    m_cFaces[i].edge.push_back(closeEdgeIdx);
+    Faces[i].edge.push_back(closeEdgeIdx);
 
-    CEdge reversedEdge;
+    Edge reversedEdge;
     reversedEdge.vertices.first = final;
     reversedEdge.vertices.second = start;
     reversedEdge.side = 0;
 
-    size_t reversedEdgeIdx = m_cEdges.size();
-    m_cEdges.push_back(reversedEdge);
+    size_t reversedEdgeIdx = Edges.size();
+    Edges.push_back(reversedEdge);
     planeFace.edge.push_back(reversedEdgeIdx);
 }
 ```
 
 ```cpp
+// check if the face is left open
 bool CMesh::GetOpenPolyline(CFace face, size_t& start, size_t& final)
 { 
     // check for lonely vertices in the face
@@ -237,10 +103,8 @@ bool CMesh::GetOpenPolyline(CFace face, size_t& start, size_t& final)
 
 ### Clean-up, triangulation and normal calculations
 
-Once all the clipping is done, ConvertMesh takes care of turning the internal mesh representation back into something renderable. First it collects only the vertices that belong to the requested side, building a remapping table so that the new index buffer stays compact and has no gaps from discarded vertices.
-Then for each face on the correct side, it filters down to only the relevant edges, sorts them into a proper vertex order, and triangulates using a fan from the first vertex, every polygon becomes a set of triangles sharing that first point. Any face that ends up with fewer than three valid vertices after filtering gets skipped entirely to avoid degenerate geometry.
-Normals are computed once per face using the cross product of two edges, then accumulated into each vertex that the face touches. After all faces are processed, every accumulated normal gets normalized, giving smooth shading across shared edges.
-Vertex remapping handles a specific problem that comes up at the cut boundary: when the plane slices through the mesh, new intersection vertices get created independently for each edge that crosses it, which can leave multiple vertices sitting at nearly identical positions along the cut. The remapping pass finds these duplicates by comparing positions within a small epsilon threshold and merges them down to a single vertex, making sure the closing face on the cut plane is properly connected rather than having tiny invisible cracks between its edges.
+ConvertMesh takes the internal representation back to something renderable. It collects only the vertices on the requested side, builds a remapping table to keep the index buffer compact, then triangulates each face using a fan from the first vertex. Faces with fewer than three valid vertices after filtering are skipped to avoid degenerate geometry. Normals are computed per face using the cross product, then accumulated into each shared vertex and normalized to give smooth shading.
+One specific problem that comes up at the cut boundary: new intersection vertices get created independently per edge, which can leave near-duplicate vertices sitting right next to each other along the cut. A remapping pass finds these duplicates within a small epsilon threshold and merges them, making sure the closing face has no invisible cracks.
 
 ![alt text](<Annotation 2025-12-04 092311.png>)
 
@@ -256,17 +120,51 @@ Vertex remapping handles a specific problem that comes up at the cut boundary: w
 
 ## Voronoi generation
 
-With the mesh splitter in place, the next step was figuring out how to generate a realistic fracture pattern. The approach I went with is Voronoi fracturing: a set of random seed points is scattered inside the mesh's bounding volume, and the space is divided so that every point in the mesh belongs to the cell of its nearest seed. Cutting the mesh along all the cell boundaries produces the final fragments. The reason this works well for destruction is that Voronoi cells are always convex, which makes them straightforward to simulate as physics bodies and gives fracture patterns that look naturally irregular.
+With a working mesh splitter, the next question was how to generate a realistic fracture pattern. The approach I went with is Voronoi fracturing: random seed points are scattered inside the mesh's bounding volume, and space is divided so every point belongs to the cell of its nearest seed. Cutting the mesh along all the cell boundaries produces the final fragments. Voronoi cells are always convex, which makes them straightforward to hand off to a physics engine and gives fracture patterns that look naturally irregular.
 
-[VORO++]
+### Voro++
 
-The fracturer takes the original mesh, generates a set of random seed points distributed within the mesh's axis-aligned bounding box, and hands them to Voro++. For each cell the library returns, the cell's faces are extracted and each one is used as a plane to progressively clip a copy of the original mesh down to just the geometry that belongs to that cell. The result is one small mesh per cell, which becomes a debris piece.
+Rather than implementing Voronoi from scratch, I used Voro++, a C++ library designed specifically for 3D Voronoi computations. It handles all the cell geometry, gives the face normals and vertex positions per cell, and is efficient enough to run at reasonable speeds even with many cells.
+The Voronoi::Generate() function takes the mesh's bounding box, sets up a Voro++ container sized to fit it, then scatters numCells random seed points inside. For each computed cell, I extract the face normals and one vertex per face, transform them from the cell's local coordinate space back into world space by adding the seed point position, and build a glm::vec4 plane from each face. The result is a list of clipping planes per cell that fully define that cell's geometry.
+
+```cpp
+for (int k = 0; k < cell.number_of_faces(); k++)
+{
+    int face_size = face_vertices[face_start];
+    int vertex_index = face_vertices[face_start + 1] * 3;
+
+    glm::vec3 localVertex(vertices[vertex_index], vertices[vertex_index + 1], vertices[vertex_index + 2]);
+    glm::vec3 worldVertex = localVertex + seedPoint; // transform from cell local to world space
+
+    glm::vec3 normal(-face_normals[k * 3], -face_normals[k * 3 + 1], -face_normals[k * 3 + 2]);
+    float d = glm::dot(normal, worldVertex);
+    glm::vec4 plane(normal.x, normal.y, normal.z, d);
+    cell_planes.push_back(plane);
+
+    face_start += face_size + 1;
+}
+```
+
+## Fracturing
+
+With Voronoi planes ready, the Fracturer applies them to produce the actual debris pieces. For each cell, it takes a fresh copy of the original mesh and progressively clips it against every plane in that cell's plane list, keeping only the positive side each time. What's left after all the clips is the geometry belonging to that Voronoi cell.
+
+```cpp
+const auto& cell = cellPlanes[k];
+std::vector<glm::vec3> currentPositions = m_mesh->GetPositions();
+std::vector<uint16_t> currentIndices = m_mesh->GetIndices();
+
+for (size_t j = 0; j < cell.size(); j++)
+{
+    const auto& plane = cell[j];
+    CMesh cmesh;
+    cmesh.FillDataCMesh(currentPositions, currentIndices);
+    cmesh.Clip(plane, ClipMode::Positive);
+    cmesh.GetPositiveData(currentPositions, currentIndices);
+}
+```
 
 ![alt text](<Annotation 2026-03-18 222407.png>)
 
 ## Optimization
 
-The biggest challenge was getting the geometry to be correct and stable. Fragments were coming out degenerate (wrong normals, broken faces, vertices growing exponentially at each cut) and a lot of time went into debugging and fixing those issues to get clean output.
-The biggest problem I faced was the vertices growing to such a number that they were exceeding OpenGL's limit. This was mostly because I was using flat normals, which means at each cut vertices get triplicated, but I couldn't use smooth normals since the meshes are very pointy and those things together look very bad. After a lot of trial and error the best solution was to use Jolt's ConvexHull to simplify the geometry, which reduced the average vertex number from around 10.000-100.000 to 15-30.
-
-## Trigger destruction and apply physics
