@@ -124,8 +124,7 @@ With a working mesh splitter, the next question was how to generate a realistic 
 
 ### Voro++
 
-Rather than implementing Voronoi from scratch, I used Voro++, a C++ library designed specifically for 3D Voronoi computations. It handles all the cell geometry, gives the face normals and vertex positions per cell, and is efficient enough to run at reasonable speeds even with many cells.
-The Voronoi::Generate() function takes the mesh's bounding box, sets up a Voro++ container sized to fit it, then scatters numCells random seed points inside. For each computed cell, I extract the face normals and one vertex per face, transform them from the cell's local coordinate space back into world space by adding the seed point position, and build a glm::vec4 plane from each face. The result is a list of clipping planes per cell that fully define that cell's geometry.
+Rather than implementing Voronoi from scratch, I used Voro++, a C++ library designed specifically for 3D Voronoi computations. It handles all the cell geometry and gives the face normals and vertex positions per cell. The container is sized to the mesh's bounding box, with seed points scattered randomly inside it using the cell count passed in. For each computed cell, I extract the face normals and one vertex per face, transform them from cell-local space into world space by adding the seed point position, and build a glm::vec4 plane from each face. The result is a list of clipping planes per cell that fully defines that cell's geometry.
 
 ```cpp
 for (int k = 0; k < cell.number_of_faces(); k++)
@@ -164,7 +163,16 @@ for (size_t j = 0; j < cell.size(); j++)
 }
 ```
 
+Once all cells are processed, each resulting piece is handed off to Jolt as a convex hull collision shape and added to the scene as an independent physics body.
+
 ![alt text](<Annotation 2026-03-18 222407.png>)
 
 ## Optimization
+
+Optimization was a core part of this project since real time fracturing is inherently expensive, every clip operation touches every vertex and edge in the mesh, and with Voronoi fracturing you're doing dozens of cuts per cell.
+
+The first big win was reducing vertex count on the final pieces. Raw fracture output can have a lot of geometry, especially on the cut faces, and feeding all of that directly to the physics engine is wasteful. Instead of using the rendered mesh as the collision shape, I run each piece through Jolt's `ConvexHullShapeSettings` after fracturing, which builds a simplified convex hull from the vertices. This massively reduces the polygon count used for physics without visibly affecting the result, since the debris pieces are already roughly convex by nature of being Voronoi cells.
+
+The second was multithreading the fracture generation. Each Voronoi cell is completely independent — it works on its own copy of the mesh data and writes to its own slot in the output array — so there are no shared writes and no locking needed. Cells are processed in batches using `std::async`, with the batch size controlled by the thread count. The one constraint is that anything touching OpenGL has to stay on the main thread, so the actual mesh and physics body creation is deferred to `FinalizeOnMainThread()` after all the fracturing work is done. This split between worker threads for the heavy geometry work and the main thread for GPU resource creation is what makes the threading safe without any synchronization overhead.
+
 
