@@ -835,7 +835,7 @@
       face geometry accumulating vertices with no simplification step. The fix was running each fragment 
       through Jolt's <code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">ConvexHullShapeSettings</code> 
       after fracturing, which reduces each piece down to around 60 vertices. This also produces the physics 
-      collision shape as a byproduct, and is where flat normals are recalculated — three jobs in one pass.
+      collision shape as a byproduct, and is where flat normals are recalculated, three jobs in one pass.
     </p>
   </div>
 
@@ -868,7 +868,7 @@
     <p>
       The remaining bottleneck was the geometry calculations themselves. Because each Voronoi cell clips 
       against its own copy of the mesh and writes to its own slot in the output array, there are no shared 
-      writes between cells — making the work embarrassingly parallel. The only constraint is that OpenGL 
+      writes between cells, making the work embarrassingly parallel. The only constraint is that OpenGL 
       calls and Jolt shape creation must stay on the main thread, so I split the pipeline into two stages:
     </p>
   </div>
@@ -971,6 +971,9 @@
 
   <video controls style="width:100%;border-radius:4px;margin:16px 0;" src="BEE 2026-06-10 17-17-14.mp4"></video>
 
+      <img src="Annotation 2026-06-09 130251.png" alt="mesh split" style="width:100%;border-radius:4px;margin:32px 0;" />
+
+
 </section>
 
     <hr class="section-divider" />
@@ -1015,3 +1018,4 @@
 
 </body>
 </html>
+
