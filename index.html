@@ -494,14 +494,15 @@
       </div>
       <div class="prose">
         <p>
-          Vertices, edges, and faces are loaded into dedicated structs that track adjacency, index, and which
-          side of the cut plane they belong to. A <code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">ClipMode</code> enum
-          lets the caller request only the positive or negative half, enabling early exits and avoiding geometry
-          work that would be thrown away.
+          Firstly I created structs to store Vertices, Edges and Faces that store all their needed information like position, 
+          index, adjacent geometry and side, filling them with the mesh geometry. Then I made a ClipMode struct that lets me 
+          choose which side of the mesh I want as a result, saving me a lot of heavy unnecessary calculations.<br>
+          The core clipping logic is as follows, going over vertices, edges and faces in order and offering early outs if the 
+          <code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">ClipMode</code> is not the desired one.
         </p>
       </div>
 
-      <div class="code-block">
+        <div class="code-block">
         <div class="code-label">CMesh.cpp — Clip entry point</div>
         <pre><span class="ty">int</span> <span class="fn">CMesh::Clip</span>(<span class="ty">glm::vec4</span> plane, <span class="ty">ClipMode</span> mode)
 {
@@ -522,8 +523,9 @@
       </div>
       <div class="prose">
         <p>
-          Every vertex is classified as positive or negative by computing its signed distance to the cutting plane.
-          No geometry is moved at this stage — the classification just drives everything that follows.
+          The function goes over the mesh and calculates the distance of every vertex relative to the cutting plane, 
+          classifying them by positive and negative based on the side they are on; this classification drives everything 
+          that follows, no geometry is modified yet but its essential for the following calculations.
         </p>
       </div>
 
@@ -532,21 +534,26 @@
       </div>
       <div class="prose">
         <p>
-          Edges whose endpoints share a side stay intact. Edges that cross the plane are split: the intersection
-          point is found via linear interpolation using the signed distances at each endpoint,
-          a new vertex is inserted there, and the edge is divided into a positive half and a negative half
-          sharing that new vertex. This is what produces the clean cut line across the surface.
+          With every vertex classified, edges can be checked. If both endpoints are on the same side the edge stays intact 
+          and gets the same label. However when an edge crosses the plane the intersection point is calculated using 
+          linear interpolation between the two endpoints based on their signed distances, and a new vertex is inserted there. 
+          The edge is then split: one half goes to the positive side, one to the negative, each referencing the new 
+          intersection vertex as their shared endpoint. This is what produces the clean cut line across the mesh.
         </p>
       </div>
 
       <div class="section-heading">
-        <h3>Process Faces &amp; Closing</h3>
+        <h3>Process Faces</h3>
       </div>
       <div class="prose">
         <p>
-          Faces that land entirely on one side are trivially assigned. Faces cut by the plane have an open boundary —
-          a closing edge is added to seal each of them, and those closing edges collectively form the flat interior cap
-          sitting exactly on the cutting plane.
+          Once edges are processed, each face is checked to determine which side it belongs to. 
+          A face whose vertices are all positive goes to the positive side, all negative goes to the negative side. 
+          Faces that were cut by the plane now have a mix of positive and negative edges, so they need to be closed: 
+          the cut creates an open boundary along the plane, and a closing edge is added to seal each open face. 
+          These closing edges also form the new flat face that sits exactly on the cutting plane, which is what gives 
+          each mesh half its interior cap.<br>
+          As follows is the logic to check if a face is left open and to close it accordingly.
         </p>
       </div>
 
@@ -614,22 +621,37 @@
       </div>
       <div class="prose">
         <p>
-          Each output face is triangulated in a fan from its first vertex. Faces with fewer than three valid
-          vertices after filtering are skipped. Normals start as per-face cross products accumulated into shared
-          vertices, though at the very end they are recalculated as flat normals — the fractured look reads
-          more clearly with hard facets than with smooth shading.
-        </p>
-        <p>
-          Because new intersection vertices are created independently per edge, near-duplicate points can appear
-          along the cut. A remapping pass merges any pairs within an epsilon threshold, preventing invisible
-          cracks in the closing cap.
+          Now the calculation results need to be converted into a renderable mesh. To do this all vertices on the 
+          requested side are collected and put into a remapping table, then each face is triangulated in a fan from 
+          the first vertex. Faces with fewer than three valid vertices after filtering are skipped to avoid degenerate geometry.
         </p>
       </div>
 
-      <div class="img-placeholder">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-        <span>triangulated output — interior cap visible</span>
+      <img src="Annotation 2025-12-04 092311.png" alt="mesh split" style="width:100%;border-radius:4px;margin:32px 0;" />
+
+      <div class="prose">
+        <p>
+          Normals are computed per face using the cross product, then accumulated into each shared vertex and normalized 
+          to reduce the the total number of normals needed compared to storing one per triangle, this is just an 
+          intermediate step as at the very end they will be recalculated since flat normals look much better in this case 
+          (see optimization section).
+        </p>
       </div>
+
+      <img src="Annotation 2025-12-02 114126-1.png" alt="mesh split" style="width:100%;border-radius:4px;margin:32px 0;" />
+
+      <div class="prose">
+        <p>
+          One thing to keep in mind to avoid getting degenerate geometry is that new intersection vertices get created 
+          independently per edge, which can leave near duplicate vertices sitting right next to each other along the cut. 
+          A remapping pass finds these duplicates within a small epsilon threshold and merges them, making sure the closing 
+          face has no invisible cracks.
+        </p>
+      </div>
+
+      <img src="Annotation 2025-12-02 114019.png" alt="mesh split" style="width:100%;border-radius:4px;margin:32px 0;" />
+      <img src="Annotation 2025-12-04 092238.png" alt="mesh split" style="width:100%;border-radius:4px;margin:32px 0;" />
+
     </section>
 
     <hr class="section-divider" />
@@ -641,11 +663,11 @@
       </div>
       <div class="prose">
         <p>
-          With a working splitter, the next question was how to produce a realistic fracture pattern.
-          Voronoi fracturing scatters random seed points inside the mesh's bounding volume and divides space so
-          every point belongs to the cell of its nearest seed. Cutting along all cell boundaries produces the
-          final fragments. Voronoi cells are always convex, which makes them a natural fit for a physics engine
-          and gives patterns that read as naturally irregular.
+          With a working mesh splitter, the next question was how to generate a realistic fracture pattern. 
+          The approach I went with is Voronoi fracturing: random seed points are scattered inside the mesh's bounding volume, 
+          and space is divided so every point belongs to the cell of its nearest seed. Cutting the mesh along all the cell 
+          boundaries produces the final fragments. Voronoi cells are always convex, which makes them straightforward 
+          to hand off to a physics engine and gives fracture patterns that look naturally irregular.
         </p>
       </div>
 
@@ -654,13 +676,14 @@
       </div>
       <div class="prose">
         <p>
-          Rather than implementing Voronoi from scratch I used
-          <a href="https://math.lbl.gov/voro++/" target="_blank" rel="noopener">Voro++</a>,
-          a C++ library for 3D Voronoi computation. The container is sized to the mesh's bounding box,
-          seeds are scattered randomly inside it, and for each computed cell the library yields face normals and
-          one vertex per face. Those are transformed into world space by adding the seed point position, then a
-          plane is built from each face. The result is a list of clipping planes per cell that fully describes
-          its geometry.
+          Rather than implementing Voronoi from scratch, I used 
+          <a href="https://math.lbl.gov/voro++/" target="_blank" rel="noopener">Voro++</a>, a C++ library designed 
+          specifically for 3D Voronoi computations. It handles all the cell geometry and gives the face normals and 
+          vertex positions per cell. The container is sized to the mesh's bounding box, with seed points scattered 
+          randomly inside it using the cell count passed in. For each computed cell, I extract the face normals and 
+          one vertex per face, transform them from cell local space into world space by adding the seed point position, 
+          and build a plane from each face. The result is a list of clipping planes per cell that fully defines 
+          that cell's geometry.
         </p>
       </div>
 
@@ -701,9 +724,10 @@
       </div>
       <div class="prose">
         <p>
-          With Voronoi planes ready, the Fracturer applies them to produce debris pieces. For each cell it
-          takes a fresh copy of the original mesh and progressively clips it against every plane in that cell's
-          list, keeping only the positive side each time. What remains is the geometry belonging to that cell.
+          With Voronoi planes ready, the Fracturer applies them to produce the actual debris pieces. For each cell, 
+          it takes a fresh copy of the original mesh and progressively clips it against every plane in that cell's 
+          plane list, keeping only the positive side each time. What's left after all the clips is the geometry belonging 
+          to that Voronoi cell.
         </p>
       </div>
 
@@ -730,10 +754,8 @@
         </p>
       </div>
 
-      <div class="img-placeholder">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
-        <span>fracture output in-engine</span>
-      </div>
+      <img src="Annotation 2026-03-18 222407.png>" alt="mesh split" style="width:100%;border-radius:4px;margin:32px 0;" />
+      <video controls style="width:100%;border-radius:4px;margin:16px 0;" src="BEE 2026-05-21 09-35-40_Trim-1.mp4"></video>
     </section>
 
     <hr class="section-divider" />
@@ -761,9 +783,8 @@
 
       <div class="prose">
         <p>
-          Optimization was a core part of the project. Every clip operation touches every vertex and edge in
-          the mesh, and Voronoi fracturing does dozens of cuts per cell — the naive approach had no chance of
-          holding at runtime.
+          Optimization was a core part of this project since real time fracturing is very expensive, every clip 
+          operation touches every vertex and edge in the mesh, and with Voronoi fracturing you're doing dozens of cuts per cell.
         </p>
       </div>
 
@@ -772,11 +793,14 @@
       </div>
       <div class="prose">
         <p>
-          Raw fracture output can carry a lot of geometry, especially on cut faces. Rather than feeding the
-          rendered mesh directly to the physics engine, each piece is run through Jolt's
+          The first big improvement was reducing vertex count on the final pieces. Raw fracture output can have 
+          a lot of geometry, especially on the cut faces, and feeding all of that directly to the physics engine is wasteful. 
+          Instead of using the rendered mesh as the collision shape, I run each piece through Jolt's 
           <code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">ConvexHullShapeSettings</code>
-          after fracturing, building a simplified convex hull from the vertices. This also serves as the point
-          where normals are recalculated as flat ones, improving shading without incurring extra storage cost.
+          after fracturing, which builds a simplified convex hull from the vertices. This massively reduces the polygon 
+          count used for physics without visibly affecting the result, since the debris pieces are already roughly 
+          convex by nature of being Voronoi cells. This is where the normals are recalculated into flat ones, making 
+          the shadng look better without having an insane number of normals.
         </p>
       </div>
 
@@ -785,36 +809,26 @@
       </div>
       <div class="prose">
         <p>
-          Each Voronoi cell is fully independent — it works on its own copy of the mesh data and writes to its
-          own output slot. No shared state, no locking required. The only constraint is that anything touching
-          OpenGL must stay on the main thread, so mesh upload and physics body creation are deferred until all
-          worker threads finish.
+          The second was multithreading the fracture generation. Each Voronoi cell is completely independent, it works 
+          on its own copy of the mesh data and writes to its own slot in the output array, which means there are no 
+          shared writes and no locking needed. The one constraint is that anything touching OpenGL has to stay on the 
+          main thread, so the actual mesh and physics body creation is deferred to after all the fracturing work is done. 
+          This split between worker threads for the heavy geometry work and the main thread for GPU work is what makes 
+          the threading safe without any synchronization problems.
         </p>
       </div>
 
-      <div class="thread-diagram" aria-label="Thread model diagram">
-        <div class="thread-row">
-          <span class="thread-label">Worker 0</span>
-          <div class="thread-bar bar-worker" style="width:220px">Voronoi clip · cell 0–N/4</div>
-        </div>
-        <div class="thread-row">
-          <span class="thread-label">Worker 1</span>
-          <div class="thread-bar bar-worker" style="width:210px">Voronoi clip · cell N/4–N/2</div>
-        </div>
-        <div class="thread-row">
-          <span class="thread-label">Worker 2</span>
-          <div class="thread-bar bar-worker" style="width:225px">Voronoi clip · cell N/2–3N/4</div>
-        </div>
-        <div class="thread-row">
-          <span class="thread-label">Worker 3</span>
-          <div class="thread-bar bar-worker" style="width:215px">Voronoi clip · cell 3N/4–N</div>
-        </div>
-        <div class="thread-row" style="margin-top:16px">
-          <span class="thread-label">Main</span>
-          <div class="thread-bar bar-main" style="width:80px;margin-right:8px">wait</div>
-          <div class="thread-bar bar-defer" style="width:160px">GL upload · Jolt bodies</div>
-        </div>
+      <div class="section-heading">
+        <h3>Conclusion</h3>
       </div>
+      <div class="prose">
+        <p>
+          Thanks to these optimizations, plus some engine specific profiling, I was able to speed up my system of roughly 78%, 
+          which made it stable enough to hold multiple fractures at runtime, effectively achieving my initial goal.
+        </p>
+      </div>
+
+      <video controls style="width:100%;border-radius:4px;margin:16px 0;" src="BEE 2026-05-06 08-06-36_Trim (2).mp4"></video>
 
     </section>
 
