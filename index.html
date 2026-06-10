@@ -445,7 +445,8 @@
     <!-- ── INTRO ── -->
    <section class="prose">
   <p>
-    For this project I worked on creating a real time destruction system applicable to any tipe of mesh,
+    For this project I worked on creating a real time destruction system applicable to any tipe of mesh, 
+    (convex or concave, as long as it can be represented as a triangle mesh) 
     focusing on the optimization aspect a lot, as my main goal was to make this program as flexible and
     reusable as possible. That is why went for real time fracturing rather than precomputed: this way any
     mesh can be used easily without needing any precalculations, as well making it versatile for generating
@@ -767,77 +768,171 @@
 
     <hr class="section-divider" />
 
-    <!-- ── OPTIMIZATION ── -->
-    <section>
-      <div class="section-heading">
-        <h2>Optimization</h2>
-      </div>
+<!-- ── OPTIMIZATION ── -->
+<section>
+  <div class="section-heading">
+    <h2>Optimization</h2>
+  </div>
 
-      <div class="stat-row">
-        <div class="stat-card">
-          <div class="num">78%</div>
-          <div class="desc">overall speedup over the unoptimized baseline</div>
-        </div>
-        <div class="stat-card">
-          <div class="num">~4.5×</div>
-          <div class="desc">average throughput gain from multithreading alone</div>
-        </div>
-        <div class="stat-card">
-          <div class="num">~20ms</div>
-          <div class="desc">fracture time per object, down from ~200ms</div>
-        </div>
-      </div>
+  <div class="stat-row">
+    <div class="stat-card">
+      <div class="num">~4.5×</div>
+      <div class="desc">average speedup across piece counts (2–35 pieces)</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">~20ms</div>
+      <div class="desc">fracture time per cube, down from ~146ms at 15 pieces</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">60ms</div>
+      <div class="desc">three meshes simultaneously, down from 300–400ms</div>
+    </div>
+  </div>
 
-      <div class="prose">
-        <p>
-          Optimization was a core part of this project since real time fracturing is very expensive, every clip 
-          operation touches every vertex and edge in the mesh, and with Voronoi fracturing you're doing dozens of cuts per cell.
-        </p>
-      </div>
+  <div class="prose">
+    <p>
+      Optimization was a core part of this project since real-time fracturing is expensive: every clip 
+      operation touches every vertex and edge in the mesh, and Voronoi fracturing does dozens of cuts per cell.
+      I used in-engine frame timing to measure fracture duration before and after each change, using a single 
+      cube fractured into 15 pieces as a consistent reference throughout.
+    </p>
+  </div>
 
-      <div class="section-heading">
-        <h3>Convex Hull Simplification</h3>
-      </div>
-      <div class="prose">
-        <p>
-          The first big improvement was reducing vertex count on the final pieces. Raw fracture output can have 
-          a lot of geometry, especially on the cut faces, and feeding all of that directly to the physics engine is wasteful. 
-          Instead of using the rendered mesh as the collision shape, I run each piece through Jolt's 
-          <code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">ConvexHullShapeSettings</code>
-          after fracturing, which builds a simplified convex hull from the vertices. This massively reduces the polygon 
-          count used for physics without visibly affecting the result, since the debris pieces are already roughly 
-          convex by nature of being Voronoi cells. This is where the normals are recalculated into flat ones, making 
-          the shadng look better without having an insane number of normals.
-        </p>
-      </div>
+  <div class="section-heading">
+    <h3>Baseline and Early Design Choices</h3>
+  </div>
+  <div class="prose">
+    <p>
+      Before any optimization, fracturing a single cube into 15 pieces took around 130ms in release. 
+      My initial plan was to avoid this cost entirely by using precomputed fracturing — generating fragments 
+      ahead of time and storing them. Once early profiling showed runtime fracturing was within reach, 
+      I switched to that approach instead, which became the foundation of the whole system.
+    </p>
+    <p>
+      One early design choice that paid off later was giving the mesh clipper a mode flag so it only 
+      computes the side of a clip operation that's actually needed, rather than always computing both 
+      and discarding half:
+    </p>
+    <pre><code>enum class ClipMode { Positive, Negative, Both };</code></pre>
+  </div>
 
-      <div class="section-heading">
-        <h3>Multithreading</h3>
-      </div>
-      <div class="prose">
-        <p>
-          The second was multithreading the fracture generation. Each Voronoi cell is completely independent, it works 
-          on its own copy of the mesh data and writes to its own slot in the output array, which means there are no 
-          shared writes and no locking needed. The one constraint is that anything touching OpenGL has to stay on the 
-          main thread, so the actual mesh and physics body creation is deferred to after all the fracturing work is done. 
-          This split between worker threads for the heavy geometry work and the main thread for GPU work is what makes 
-          the threading safe without any synchronization problems.
-        </p>
-      </div>
+  <div class="section-heading">
+    <h3>Vertex Count and Convex Hull Simplification</h3>
+  </div>
+  <div class="prose">
+    <p>
+      During early testing, fragment vertex counts were reaching over 65,000 — the OpenGL rendering limit — 
+      causing visual corruption and load times close to a minute. After profiling and debugging I traced this 
+      to the raw cut face geometry accumulating vertices with no simplification step. The fix was running each 
+      fragment through Jolt's <code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">ConvexHullShapeSettings</code> 
+      after fracturing, which reduces each piece down to around 60 vertices. This also produces the physics 
+      collision shape as a byproduct, and is where flat normals are calculated, so it does three jobs at once.
+    </p>
+  </div>
 
-      <div class="section-heading">
-        <h3>Conclusion</h3>
-      </div>
-      <div class="prose">
-        <p>
-          Thanks to these optimizations, plus some engine specific profiling, I was able to speed up my system of roughly 78%, 
-          which made it stable enough to hold multiple fractures at runtime, effectively achieving my initial goal.
-        </p>
-      </div>
+  <div class="section-heading">
+    <h3>Smaller Fixes (130ms → 60ms)</h3>
+  </div>
+  <div class="prose">
+    <p>
+      With the vertex problem solved I focused on the fracture time itself. Two small changes brought the 
+      reference case from ~130ms down to ~60ms:
+    </p>
+    <ul>
+      <li>Reserving capacity on vertex and index vectors upfront based on expected maximum size, 
+      eliminating repeated reallocations inside the loop.</li>
+      <li>Replacing the <code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">std::vector</code> 
+      storing an edge's two faces with a fixed-size <code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">std::array</code>, 
+      removing heap allocations for a struct that is always exactly size 2. This single change accounted 
+      for around 25% of the total speedup on its own.</li>
+    </ul>
+    <p>
+      I attempted the same <code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">array</code> 
+      swap for the face-to-edge struct, but the algorithm's logic would have needed a full rewrite to 
+      accommodate a fixed size there, so I left it as a known future opportunity.
+    </p>
+  </div>
 
-      <video controls style="width:100%;border-radius:4px;margin:16px 0;" src="BEE 2026-06-10 17-17-14.mp4"></video>
+  <div class="section-heading">
+    <h3>Multithreading (60ms → 20–25ms)</h3>
+  </div>
+  <div class="prose">
+    <p>
+      The remaining bottleneck was the geometry calculations themselves. Because each Voronoi cell clips 
+      against its own copy of the mesh and writes to its own slot in the output array, there are no shared 
+      writes between cells — making the work embarrassingly parallel. The only constraint is that OpenGL 
+      calls and Jolt shape creation must stay on the main thread, so I split the pipeline into two stages:
+    </p>
+    <ul>
+      <li><code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">Generate()</code> — 
+      all geometry calculations, runs in parallel across worker threads.</li>
+      <li><code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">FinalizeOnMainThread()</code> — 
+      convex hull simplification, normal calculation, and mesh/physics body creation, deferred to the main thread.</li>
+    </ul>
+    <p>
+      This brought the single-cube reference case from ~60ms to ~20–25ms. The gain is more visible under 
+      load: fracturing three meshes simultaneously dropped from 300–400ms (worse than linear scaling, due 
+      to contention) to around 60ms.
+    </p>
+  </div>
 
-    </section>
+  <div class="section-heading">
+    <h3>Stress Tests and Scalability</h3>
+  </div>
+  <div class="prose">
+    <p>
+      To understand how the system scales I tested four meshes of increasing complexity at 15 pieces, 
+      with all objects in the scene simultaneously:
+    </p>
+    <ul>
+      <li>Cube: ~20–30ms</li>
+      <li>Cone: ~40–45ms</li>
+      <li>Icosphere: ~70–85ms</li>
+      <li>Torus: ~200–210ms</li>
+    </ul>
+    <p>
+      The torus sits right at the 200ms limit due to its polygon density. Pushing to 25 pieces 
+      made the torus impractical (~600ms+), while simpler shapes remained usable individually 
+      (cube ~60ms, icosphere ~140ms, cone ~250ms). I also measured speedup across piece counts 
+      on a cube to get a clearer picture of how optimization scales:
+    </p>
+  </div>
+
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr><th>Pieces</th><th>Before</th><th>After</th><th>Speedup</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>2</td><td>2ms</td><td>2ms</td><td>1×</td></tr>
+        <tr><td>5</td><td>15ms</td><td>5ms</td><td>3×</td></tr>
+        <tr><td>10</td><td>98ms</td><td>17ms</td><td>5.8×</td></tr>
+        <tr><td>15</td><td>146ms</td><td>31ms</td><td>4.7×</td></tr>
+        <tr><td>20</td><td>566ms</td><td>117ms</td><td>4.8×</td></tr>
+        <tr><td>25</td><td>472ms</td><td>60ms</td><td>7.9×</td></tr>
+        <tr><td>30</td><td>781ms</td><td>131ms</td><td>6×</td></tr>
+        <tr><td>35</td><td>1203ms</td><td>215ms</td><td>5.6×</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section-heading">
+    <h3>Conclusion</h3>
+  </div>
+  <div class="prose">
+    <p>
+      The optimized system stays within practical real-time range for simple to moderately complex meshes 
+      at up to 25–30 pieces. The parallel pipeline also scales well under simultaneous fractures since 
+      cells share no state, meaning adding objects does not multiply cost the way a single-threaded 
+      implementation would. The main constraint to plan around is mesh complexity: high-polygon shapes 
+      like a torus push times up significantly, so the 200ms target holds comfortably for typical geometry 
+      but may need revisiting for high-detail assets.
+    </p>
+  </div>
+
+  <video controls style="width:100%;border-radius:4px;margin:16px 0;" src="BEE 2026-06-10 17-17-14.mp4"></video>
+
+</section>
 
     <hr class="section-divider" />
 
