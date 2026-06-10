@@ -813,7 +813,16 @@
       computes the side of a clip operation that's actually needed, rather than always computing both 
       and discarding half:
     </p>
-    <pre><code>enum class ClipMode { Positive, Negative, Both };</code></pre>
+  </div>
+
+  <div class="code-block">
+    <div class="code-label">CMesh.h — Clip mode flag</div>
+    <pre><span class="kw">enum class</span> <span class="ty">ClipMode</span>
+{
+    <span class="nu">Positive</span>,
+    <span class="nu">Negative</span>,
+    <span class="nu">Both</span>
+};</pre>
   </div>
 
   <div class="section-heading">
@@ -822,39 +831,38 @@
   <div class="prose">
     <p>
       During early testing, fragment vertex counts were reaching over 65,000 — the OpenGL rendering limit — 
-      causing visual corruption and load times close to a minute. After profiling and debugging I traced this 
-      to the raw cut face geometry accumulating vertices with no simplification step. The fix was running each 
-      fragment through Jolt's <code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">ConvexHullShapeSettings</code> 
+      causing visual corruption and load times close to a minute. After profiling I traced this to raw cut 
+      face geometry accumulating vertices with no simplification step. The fix was running each fragment 
+      through Jolt's <code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">ConvexHullShapeSettings</code> 
       after fracturing, which reduces each piece down to around 60 vertices. This also produces the physics 
-      collision shape as a byproduct, and is where flat normals are calculated, so it does three jobs at once.
+      collision shape as a byproduct, and is where flat normals are recalculated — three jobs in one pass.
     </p>
   </div>
 
   <div class="section-heading">
-    <h3>Smaller Fixes (130ms → 60ms)</h3>
+    <h3>Smaller Fixes &nbsp;<span style="font-size:0.85rem;font-weight:400;color:var(--muted)">130ms → 60ms</span></h3>
   </div>
   <div class="prose">
     <p>
       With the vertex problem solved I focused on the fracture time itself. Two small changes brought the 
       reference case from ~130ms down to ~60ms:
     </p>
-    <ul>
-      <li>Reserving capacity on vertex and index vectors upfront based on expected maximum size, 
-      eliminating repeated reallocations inside the loop.</li>
+    <ul style="color:var(--muted);font-size:0.97rem;padding-left:20px;margin:12px 0 20px;line-height:1.8;">
+      <li style="margin-bottom:10px;">Reserving capacity on vertex and index vectors upfront based on expected 
+      maximum size, eliminating repeated reallocations inside the loop.</li>
       <li>Replacing the <code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">std::vector</code> 
       storing an edge's two faces with a fixed-size <code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">std::array</code>, 
       removing heap allocations for a struct that is always exactly size 2. This single change accounted 
       for around 25% of the total speedup on its own.</li>
     </ul>
     <p>
-      I attempted the same <code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">array</code> 
-      swap for the face-to-edge struct, but the algorithm's logic would have needed a full rewrite to 
-      accommodate a fixed size there, so I left it as a known future opportunity.
+      I attempted the same swap for the face-to-edge struct, but the algorithm's logic would have needed 
+      a near-complete rewrite to accommodate a fixed size there, so I left it as a known future opportunity.
     </p>
   </div>
 
   <div class="section-heading">
-    <h3>Multithreading (60ms → 20–25ms)</h3>
+    <h3>Multithreading &nbsp;<span style="font-size:0.85rem;font-weight:400;color:var(--muted)">60ms → 20–25ms</span></h3>
   </div>
   <div class="prose">
     <p>
@@ -863,12 +871,30 @@
       writes between cells — making the work embarrassingly parallel. The only constraint is that OpenGL 
       calls and Jolt shape creation must stay on the main thread, so I split the pipeline into two stages:
     </p>
-    <ul>
-      <li><code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">Generate()</code> — 
-      all geometry calculations, runs in parallel across worker threads.</li>
-      <li><code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">FinalizeOnMainThread()</code> — 
-      convex hull simplification, normal calculation, and mesh/physics body creation, deferred to the main thread.</li>
-    </ul>
+  </div>
+
+  <div class="thread-diagram">
+    <div class="thread-row">
+      <span class="thread-label">Worker ×N</span>
+      <div class="thread-bar bar-worker" style="width:55%;">Generate() — geometry per cell</div>
+    </div>
+    <div class="thread-row">
+      <span class="thread-label">Main thread</span>
+      <div class="thread-bar bar-main" style="width:20%;opacity:0.3;">waiting</div>
+      <div class="thread-bar bar-defer" style="width:35%;">FinalizeOnMainThread()</div>
+    </div>
+  </div>
+
+  <div class="code-block">
+    <div class="code-label">Fracturer.cpp — Split pipeline</div>
+    <pre><span class="cm">// runs in parallel — pure geometry, no GPU/physics calls</span>
+<span class="ty">std::vector</span>&lt;<span class="ty">std::shared_ptr</span>&lt;<span class="ty">bee::Mesh</span>&gt;&gt; <span class="fn">Fracturer::Generate</span>(<span class="ty">int</span> numPieces, <span class="ty">unsigned int</span> numThreads);
+
+<span class="cm">// runs on main thread — ConvexHull, normals, mesh + body creation</span>
+<span class="kw">void</span> <span class="fn">Fracturer::FinalizeOnMainThread</span>();</pre>
+  </div>
+
+  <div class="prose">
     <p>
       This brought the single-cube reference case from ~60ms to ~20–25ms. The gain is more visible under 
       load: fracturing three meshes simultaneously dropped from 300–400ms (worse than linear scaling, due 
@@ -884,36 +910,49 @@
       To understand how the system scales I tested four meshes of increasing complexity at 15 pieces, 
       with all objects in the scene simultaneously:
     </p>
-    <ul>
-      <li>Cube: ~20–30ms</li>
-      <li>Cone: ~40–45ms</li>
-      <li>Icosphere: ~70–85ms</li>
-      <li>Torus: ~200–210ms</li>
-    </ul>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:24px 0 32px;">
+    <div class="stat-card" style="padding:16px;">
+      <div class="num" style="font-size:1.4rem;">~25ms</div>
+      <div class="desc">Cube</div>
+    </div>
+    <div class="stat-card" style="padding:16px;">
+      <div class="num" style="font-size:1.4rem;">~42ms</div>
+      <div class="desc">Cone</div>
+    </div>
+    <div class="stat-card" style="padding:16px;">
+      <div class="num" style="font-size:1.4rem;">~77ms</div>
+      <div class="desc">Icosphere</div>
+    </div>
+    <div class="stat-card" style="padding:16px;">
+      <div class="num" style="font-size:1.4rem;">~205ms</div>
+      <div class="desc">Torus</div>
+    </div>
+  </div>
+
+  <div class="prose">
     <p>
-      The torus sits right at the 200ms limit due to its polygon density. Pushing to 25 pieces 
-      made the torus impractical (~600ms+), while simpler shapes remained usable individually 
-      (cube ~60ms, icosphere ~140ms, cone ~250ms). I also measured speedup across piece counts 
-      on a cube to get a clearer picture of how optimization scales:
+      The torus sits right at the 200ms limit due to its polygon density. Pushing to 25 pieces made it 
+      impractical (~600ms+), while simpler shapes remained usable individually (cube ~60ms, icosphere ~140ms, 
+      cone ~250ms). I also measured speedup across piece counts on a cube to get a clearer picture of how 
+      the optimizations scale together:
     </p>
   </div>
 
-  <div class="table-wrapper">
-    <table>
-      <thead>
-        <tr><th>Pieces</th><th>Before</th><th>After</th><th>Speedup</th></tr>
-      </thead>
-      <tbody>
-        <tr><td>2</td><td>2ms</td><td>2ms</td><td>1×</td></tr>
-        <tr><td>5</td><td>15ms</td><td>5ms</td><td>3×</td></tr>
-        <tr><td>10</td><td>98ms</td><td>17ms</td><td>5.8×</td></tr>
-        <tr><td>15</td><td>146ms</td><td>31ms</td><td>4.7×</td></tr>
-        <tr><td>20</td><td>566ms</td><td>117ms</td><td>4.8×</td></tr>
-        <tr><td>25</td><td>472ms</td><td>60ms</td><td>7.9×</td></tr>
-        <tr><td>30</td><td>781ms</td><td>131ms</td><td>6×</td></tr>
-        <tr><td>35</td><td>1203ms</td><td>215ms</td><td>5.6×</td></tr>
-      </tbody>
-    </table>
+  <div class="code-block" style="margin:24px -28px;">
+    <div class="code-label">Benchmark — cube, before vs after, release build</div>
+    <pre style="padding:16px 28px 24px;">
+<span class="cm">  pieces │  before │   after │ speedup</span>
+<span class="cm">─────────┼─────────┼─────────┼────────</span>
+<span class="nu">       2</span> │    <span class="nu">2</span> ms  │    <span class="nu">2</span> ms  │    <span class="nu">1</span>×
+<span class="nu">       5</span> │   <span class="nu">15</span> ms  │    <span class="nu">5</span> ms  │    <span class="nu">3</span>×
+<span class="nu">      10</span> │   <span class="nu">98</span> ms  │   <span class="nu">17</span> ms  │  <span class="nu">5.8</span>×
+<span class="nu">      15</span> │  <span class="nu">146</span> ms  │   <span class="nu">31</span> ms  │  <span class="nu">4.7</span>×
+<span class="nu">      20</span> │  <span class="nu">566</span> ms  │  <span class="nu">117</span> ms  │  <span class="nu">4.8</span>×
+<span class="nu">      25</span> │  <span class="nu">472</span> ms  │   <span class="nu">60</span> ms  │  <span class="nu">7.9</span>×
+<span class="nu">      30</span> │  <span class="nu">781</span> ms  │  <span class="nu">131</span> ms  │    <span class="nu">6</span>×
+<span class="nu">      35</span> │ <span class="nu">1203</span> ms  │  <span class="nu">215</span> ms  │  <span class="nu">5.6</span>×</pre>
   </div>
 
   <div class="section-heading">
@@ -922,11 +961,11 @@
   <div class="prose">
     <p>
       The optimized system stays within practical real-time range for simple to moderately complex meshes 
-      at up to 25–30 pieces. The parallel pipeline also scales well under simultaneous fractures since 
-      cells share no state, meaning adding objects does not multiply cost the way a single-threaded 
-      implementation would. The main constraint to plan around is mesh complexity: high-polygon shapes 
-      like a torus push times up significantly, so the 200ms target holds comfortably for typical geometry 
-      but may need revisiting for high-detail assets.
+      at up to 25–30 pieces. The parallel pipeline scales well under simultaneous fractures since cells 
+      share no state, meaning adding objects does not multiply cost the way a single-threaded implementation 
+      would. The main constraint to plan around is mesh complexity: high-polygon shapes like the torus push 
+      times up significantly, so the 200ms target holds comfortably for typical geometry but may need 
+      revisiting for high-detail assets.
     </p>
   </div>
 
