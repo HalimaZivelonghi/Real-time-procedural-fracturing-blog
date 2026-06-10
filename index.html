@@ -478,13 +478,12 @@
       </div>
       <div class="prose">
         <p>
-          The foundation of the whole system is a mesh splitter that divides any mesh along an arbitrary plane,
-          producing two independent halves with clean, capped interiors.
-          The algorithm follows the approach described in
+          The first step to implement fracturing was creating a mesh splitter system capable of dividing a mesh along a plane, 
+          creating two different ones. This process is well explained in
           <a href="https://www.geometrictools.com/Documentation/ClipMesh.pdf" target="_blank" rel="noopener">
-            Geometric Tools — Clip Mesh
+            this paper
           </a>,
-          which I adapted into a C++ <code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">CMesh</code> class.
+          which was the one I followed for the geometry calculations and I recommend taking a look at it.
         </p>
       </div>
 
