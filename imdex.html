@@ -1,0 +1,844 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Real-Time Procedural Fracturing</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0E0E12;
+      --bg-card:   #16161D;
+      --border:    #2A2A38;
+      --text:      #E8E6E0;
+      --muted:     #8A8899;
+      --accent:    #F5A623;
+      --accent-dim:#7A4E0A;
+      --code-bg:   #111118;
+      --font-disp: 'Space Grotesk', sans-serif;
+      --font-body: 'Inter', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      font-size: 16px;
+      line-height: 1.75;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Progress bar ── */
+    #progress-bar {
+      position: fixed;
+      top: 0; left: 0;
+      height: 2px;
+      width: 0%;
+      background: var(--accent);
+      z-index: 100;
+      transition: width 0.1s linear;
+    }
+
+    /* ── Layout ── */
+    .container {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 0 28px;
+    }
+
+    /* ── Hero ── */
+    .hero {
+      padding: 120px 0 80px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-eyebrow {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 28px;
+    }
+
+    .hero h1 {
+      font-family: var(--font-disp);
+      font-size: clamp(2.8rem, 7vw, 5rem);
+      font-weight: 700;
+      line-height: 1.05;
+      letter-spacing: -0.025em;
+      color: var(--text);
+      position: relative;
+      z-index: 2;
+    }
+
+    /* Crack SVG overlay on title */
+    .crack-wrap {
+      position: relative;
+      display: inline-block;
+    }
+
+    .crack-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      overflow: visible;
+    }
+
+    .crack-path {
+      stroke: var(--accent);
+      stroke-width: 1.5;
+      fill: none;
+      stroke-dasharray: 600;
+      stroke-dashoffset: 600;
+      opacity: 0.7;
+      animation: crack-draw 1.2s cubic-bezier(0.4, 0, 0.2, 1) 0.4s forwards;
+    }
+
+    .crack-path-2 {
+      stroke: var(--accent);
+      stroke-width: 0.8;
+      fill: none;
+      stroke-dasharray: 300;
+      stroke-dashoffset: 300;
+      opacity: 0.4;
+      animation: crack-draw 0.9s cubic-bezier(0.4, 0, 0.2, 1) 1.0s forwards;
+    }
+
+    @keyframes crack-draw {
+      to { stroke-dashoffset: 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .crack-path, .crack-path-2 { animation: none; stroke-dashoffset: 0; }
+    }
+
+    .hero-sub {
+      margin-top: 32px;
+      font-size: 1.05rem;
+      color: var(--muted);
+      max-width: 560px;
+      line-height: 1.7;
+    }
+
+    .hero-meta {
+      display: flex;
+      gap: 32px;
+      margin-top: 48px;
+      padding-top: 32px;
+      border-top: 1px solid var(--border);
+    }
+
+    .hero-meta-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .hero-meta-item .label {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .hero-meta-item .value {
+      font-family: var(--font-disp);
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    /* ── Section divider ── */
+    .section-divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 72px 0 64px;
+    }
+
+    /* ── Section heading ── */
+    .section-heading {
+      position: relative;
+      margin-bottom: 32px;
+    }
+
+    .section-heading h2 {
+      font-family: var(--font-disp);
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+
+    .section-heading h3 {
+      font-family: var(--font-disp);
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-top: 48px;
+      margin-bottom: 16px;
+      padding-left: 16px;
+      border-left: 2px solid var(--accent);
+    }
+
+    /* ── Body text ── */
+    .prose p {
+      color: var(--muted);
+      margin-bottom: 20px;
+      font-size: 0.97rem;
+    }
+
+    .prose p:last-child { margin-bottom: 0; }
+
+    .prose a {
+      color: var(--accent);
+      text-decoration: underline;
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+    }
+
+    /* ── Code blocks ── */
+    .code-block {
+      margin: 32px -28px;
+      background: var(--code-bg);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+    }
+
+    .code-label {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--accent-dim);
+      padding: 12px 28px 0;
+    }
+
+    .code-block pre {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      line-height: 1.7;
+      color: #C8C6C0;
+      padding: 16px 28px 24px;
+      white-space: pre;
+    }
+
+    /* Syntax highlighting (manual) */
+    .kw  { color: #C792EA; }
+    .ty  { color: #82AAFF; }
+    .fn  { color: #82AAFF; }
+    .cm  { color: #546E7A; font-style: italic; }
+    .st  { color: #C3E88D; }
+    .nu  { color: #F78C6C; }
+    .pp  { color: #89DDFF; }
+
+    /* ── Image placeholder ── */
+    .img-placeholder {
+      width: 100%;
+      aspect-ratio: 16/9;
+      background: var(--bg-card);
+      border: 1px dashed var(--border);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 8px;
+      margin: 32px 0;
+      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    .img-placeholder svg {
+      opacity: 0.3;
+    }
+
+    /* ── Callout / stat card ── */
+    .stat-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin: 48px 0;
+    }
+
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 24px 20px;
+    }
+
+    .stat-card .num {
+      font-family: var(--font-disp);
+      font-size: 2.2rem;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: -0.03em;
+    }
+
+    .stat-card .desc {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-top: 6px;
+      line-height: 1.5;
+    }
+
+    /* ── Pipeline diagram ── */
+    .pipeline {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin: 40px 0;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
+    .pipeline-step {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 12px 16px;
+      text-align: center;
+      flex-shrink: 0;
+      min-width: 110px;
+    }
+
+    .pipeline-step .step-num {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      color: var(--accent);
+      margin-bottom: 4px;
+    }
+
+    .pipeline-step .step-label {
+      font-family: var(--font-disp);
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .pipeline-arrow {
+      color: var(--border);
+      font-size: 1.1rem;
+      padding: 0 8px;
+      flex-shrink: 0;
+    }
+
+    /* ── Thread diagram ── */
+    .thread-diagram {
+      margin: 32px 0;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 24px;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      overflow-x: auto;
+    }
+
+    .thread-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 12px;
+      gap: 12px;
+    }
+
+    .thread-label {
+      color: var(--muted);
+      min-width: 90px;
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .thread-bar {
+      height: 26px;
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      font-size: 10px;
+      white-space: nowrap;
+    }
+
+    .bar-worker { background: #1E2A1A; color: #6DBF5A; border: 1px solid #2F4A2A; }
+    .bar-main   { background: #1A1E2A; color: #5A8FBF; border: 1px solid #2A3048; }
+    .bar-defer  { background: #2A1A14; color: #BF7A5A; border: 1px solid #4A2A1E; }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 48px 0 64px;
+      margin-top: 96px;
+      color: var(--muted);
+      font-size: 0.8rem;
+      font-family: var(--font-mono);
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      .code-block { margin: 24px -16px; }
+      .code-label, .code-block pre { padding-left: 16px; padding-right: 16px; }
+      .stat-row { grid-template-columns: 1fr 1fr; }
+      .stat-row .stat-card:last-child { grid-column: span 2; }
+      .pipeline { gap: 0; }
+      .pipeline-step { min-width: 90px; padding: 10px 10px; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="progress-bar"></div>
+
+<main>
+  <div class="container">
+
+    <!-- ── HERO ── -->
+    <section class="hero">
+      <div class="hero-eyebrow">C++ · Real-Time Systems · Game Physics</div>
+      <h1>
+        <span class="crack-wrap">
+          Real-Time
+          <svg class="crack-svg" viewBox="0 0 400 80" preserveAspectRatio="none" aria-hidden="true">
+            <path class="crack-path" d="M 60 0 L 85 22 L 70 30 L 120 58 L 105 75 L 160 80" />
+            <path class="crack-path-2" d="M 85 22 L 115 18 L 130 30 L 155 25" />
+          </svg>
+        </span><br>
+        Procedural<br>Fracturing
+      </h1>
+      <p class="hero-sub">
+        A runtime mesh destruction system for any geometry — no precomputation, no baked assets.
+        Voronoi splitting, Jolt physics integration, and multithreaded generation achieving a 78% speedup.
+      </p>
+      <div class="hero-meta">
+        <div class="hero-meta-item">
+          <span class="label">Stack</span>
+          <span class="value">C++ / OpenGL</span>
+        </div>
+        <div class="hero-meta-item">
+          <span class="label">Physics</span>
+          <span class="value">Jolt Physics</span>
+        </div>
+        <div class="hero-meta-item">
+          <span class="label">Voronoi</span>
+          <span class="value">Voro++</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── INTRO ── -->
+    <section class="prose">
+      <p>
+        The goal of this project was a flexible, reusable destruction system that works on any mesh at runtime
+        — no precalculations, no per-asset preparation. That constraint pushed me toward real-time fracturing
+        rather than precomputed, which meant performance had to be treated as a first-class concern from the start.
+        Heavy profiling and several rounds of targeted optimization were what made it viable.
+      </p>
+    </section>
+
+    <!-- ── PIPELINE OVERVIEW ── -->
+    <div class="pipeline" aria-label="Fracturing pipeline overview">
+      <div class="pipeline-step"><div class="step-num">01</div><div class="step-label">Mesh Input</div></div>
+      <span class="pipeline-arrow">→</span>
+      <div class="pipeline-step"><div class="step-num">02</div><div class="step-label">Voronoi Seeds</div></div>
+      <span class="pipeline-arrow">→</span>
+      <div class="pipeline-step"><div class="step-num">03</div><div class="step-label">Plane Clips</div></div>
+      <span class="pipeline-arrow">→</span>
+      <div class="pipeline-step"><div class="step-num">04</div><div class="step-label">Convex Hulls</div></div>
+      <span class="pipeline-arrow">→</span>
+      <div class="pipeline-step"><div class="step-num">05</div><div class="step-label">Physics Bodies</div></div>
+    </div>
+
+    <hr class="section-divider" />
+
+    <!-- ── MESH SPLITTING ── -->
+    <section>
+      <div class="section-heading">
+        <h2>Mesh Splitting</h2>
+      </div>
+      <div class="prose">
+        <p>
+          The foundation of the whole system is a mesh splitter that divides any mesh along an arbitrary plane,
+          producing two independent halves with clean, capped interiors.
+          The algorithm follows the approach described in
+          <a href="https://www.geometrictools.com/Documentation/ClipMesh.pdf" target="_blank" rel="noopener">
+            Geometric Tools — Clip Mesh
+          </a>,
+          which I adapted into a C++ <code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">CMesh</code> class.
+        </p>
+      </div>
+
+      <div class="img-placeholder">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+        <span>mesh split — before / after</span>
+      </div>
+
+      <div class="section-heading">
+        <h3>Initialization</h3>
+      </div>
+      <div class="prose">
+        <p>
+          Vertices, edges, and faces are loaded into dedicated structs that track adjacency, index, and which
+          side of the cut plane they belong to. A <code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">ClipMode</code> enum
+          lets the caller request only the positive or negative half, enabling early exits and avoiding geometry
+          work that would be thrown away.
+        </p>
+      </div>
+
+      <div class="code-block">
+        <div class="code-label">CMesh.cpp — Clip entry point</div>
+        <pre><span class="ty">int</span> <span class="fn">CMesh::Clip</span>(<span class="ty">glm::vec4</span> plane, <span class="ty">ClipMode</span> mode)
+{
+    <span class="kw">if</span> (<span class="fn">ProcessVertices</span>(plane) == <span class="nu">1</span>)  <span class="cm">// all vertices on positive side</span>
+        <span class="kw">return</span> <span class="nu">1</span>;
+    <span class="kw">else if</span> (<span class="fn">ProcessVertices</span>(plane) == <span class="nu">-1</span>)  <span class="cm">// all vertices on negative side</span>
+        <span class="kw">return</span> <span class="nu">-1</span>;
+
+    <span class="fn">ProcessEdges</span>(mode);
+    <span class="fn">ProcessFaces</span>(plane, mode);
+
+    <span class="kw">return</span> <span class="nu">0</span>;
+}</pre>
+      </div>
+
+      <div class="section-heading">
+        <h3>Process Vertices</h3>
+      </div>
+      <div class="prose">
+        <p>
+          Every vertex is classified as positive or negative by computing its signed distance to the cutting plane.
+          No geometry is moved at this stage — the classification just drives everything that follows.
+        </p>
+      </div>
+
+      <div class="section-heading">
+        <h3>Process Edges</h3>
+      </div>
+      <div class="prose">
+        <p>
+          Edges whose endpoints share a side stay intact. Edges that cross the plane are split: the intersection
+          point is found via linear interpolation using the signed distances at each endpoint,
+          a new vertex is inserted there, and the edge is divided into a positive half and a negative half
+          sharing that new vertex. This is what produces the clean cut line across the surface.
+        </p>
+      </div>
+
+      <div class="section-heading">
+        <h3>Process Faces &amp; Closing</h3>
+      </div>
+      <div class="prose">
+        <p>
+          Faces that land entirely on one side are trivially assigned. Faces cut by the plane have an open boundary —
+          a closing edge is added to seal each of them, and those closing edges collectively form the flat interior cap
+          sitting exactly on the cutting plane.
+        </p>
+      </div>
+
+      <div class="code-block">
+        <div class="code-label">CMesh.cpp — Open polyline detection</div>
+        <pre><span class="kw">bool</span> <span class="fn">CMesh::GetOpenPolyline</span>(<span class="ty">CFace</span> face, <span class="ty">size_t</span>&amp; start, <span class="ty">size_t</span>&amp; final)
+{
+    <span class="cm">// reset occurrence counts on all edge vertices</span>
+    <span class="kw">for</span> (<span class="ty">size_t</span> j : face.edge)
+    {
+        m_cVertices[m_cEdges[j].vertices.first].occurs = <span class="nu">0</span>;
+        m_cVertices[m_cEdges[j].vertices.second].occurs = <span class="nu">0</span>;
+    }
+
+    <span class="kw">for</span> (<span class="ty">size_t</span> j : face.edge)
+    {
+        m_cVertices[m_cEdges[j].vertices.first].occurs++;
+        m_cVertices[m_cEdges[j].vertices.second].occurs++;
+    }
+
+    start = std::numeric_limits&lt;<span class="ty">size_t</span>&gt;::max();
+    final = std::numeric_limits&lt;<span class="ty">size_t</span>&gt;::max();
+
+    <span class="cm">// vertices with occurs == 1 are the open endpoints</span>
+    <span class="kw">for</span> (<span class="ty">size_t</span> j : face.edge)
+    {
+        <span class="ty">size_t</span> i0 = m_cEdges[j].vertices.first;
+        <span class="ty">size_t</span> i1 = m_cEdges[j].vertices.second;
+
+        <span class="kw">if</span> (m_cVertices[i0].occurs == <span class="nu">1</span>)  final = i0;
+        <span class="kw">if</span> (m_cVertices[i1].occurs == <span class="nu">1</span>)  start = i1;
+    }
+
+    <span class="kw">return</span> start != std::numeric_limits&lt;<span class="ty">size_t</span>&gt;::max();
+}</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-label">CMesh.cpp — Inserting the closing edge</div>
+        <pre><span class="kw">if</span> (<span class="fn">GetOpenPolyline</span>(tempFace, start, final))
+{
+    <span class="ty">Edge</span> closeEdge;
+    closeEdge.vertices.first  = start;
+    closeEdge.vertices.second = final;
+    closeEdge.face[<span class="nu">0</span>] = i;
+    closeEdge.side  = side;
+
+    <span class="ty">size_t</span> closeEdgeIdx = Edges.size();
+    Edges.push_back(closeEdge);
+    Faces[i].edge.push_back(closeEdgeIdx);
+
+    <span class="ty">Edge</span> reversedEdge;
+    reversedEdge.vertices.first  = final;
+    reversedEdge.vertices.second = start;
+    reversedEdge.side = <span class="nu">0</span>;
+
+    <span class="ty">size_t</span> reversedEdgeIdx = Edges.size();
+    Edges.push_back(reversedEdge);
+    planeFace.edge.push_back(reversedEdgeIdx);
+}</pre>
+      </div>
+
+      <div class="section-heading">
+        <h3>Clean-up, Triangulation &amp; Normals</h3>
+      </div>
+      <div class="prose">
+        <p>
+          Each output face is triangulated in a fan from its first vertex. Faces with fewer than three valid
+          vertices after filtering are skipped. Normals start as per-face cross products accumulated into shared
+          vertices, though at the very end they are recalculated as flat normals — the fractured look reads
+          more clearly with hard facets than with smooth shading.
+        </p>
+        <p>
+          Because new intersection vertices are created independently per edge, near-duplicate points can appear
+          along the cut. A remapping pass merges any pairs within an epsilon threshold, preventing invisible
+          cracks in the closing cap.
+        </p>
+      </div>
+
+      <div class="img-placeholder">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        <span>triangulated output — interior cap visible</span>
+      </div>
+    </section>
+
+    <hr class="section-divider" />
+
+    <!-- ── VORONOI ── -->
+    <section>
+      <div class="section-heading">
+        <h2>Voronoi Generation</h2>
+      </div>
+      <div class="prose">
+        <p>
+          With a working splitter, the next question was how to produce a realistic fracture pattern.
+          Voronoi fracturing scatters random seed points inside the mesh's bounding volume and divides space so
+          every point belongs to the cell of its nearest seed. Cutting along all cell boundaries produces the
+          final fragments. Voronoi cells are always convex, which makes them a natural fit for a physics engine
+          and gives patterns that read as naturally irregular.
+        </p>
+      </div>
+
+      <div class="section-heading">
+        <h3>Voro++</h3>
+      </div>
+      <div class="prose">
+        <p>
+          Rather than implementing Voronoi from scratch I used
+          <a href="https://math.lbl.gov/voro++/" target="_blank" rel="noopener">Voro++</a>,
+          a C++ library for 3D Voronoi computation. The container is sized to the mesh's bounding box,
+          seeds are scattered randomly inside it, and for each computed cell the library yields face normals and
+          one vertex per face. Those are transformed into world space by adding the seed point position, then a
+          plane is built from each face. The result is a list of clipping planes per cell that fully describes
+          its geometry.
+        </p>
+      </div>
+
+      <div class="code-block">
+        <div class="code-label">Fracturer.cpp — Building cell planes from Voro++ output</div>
+        <pre><span class="kw">for</span> (<span class="ty">int</span> k = <span class="nu">0</span>; k &lt; cell.<span class="fn">number_of_faces</span>(); k++)
+{
+    <span class="ty">int</span> face_size    = face_vertices[face_start];
+    <span class="ty">int</span> vertex_index = face_vertices[face_start + <span class="nu">1</span>] * <span class="nu">3</span>;
+
+    <span class="ty">glm::vec3</span> localVertex(
+        vertices[vertex_index],
+        vertices[vertex_index + <span class="nu">1</span>],
+        vertices[vertex_index + <span class="nu">2</span>]);
+
+    <span class="ty">glm::vec3</span> worldVertex = localVertex + seedPoint;
+
+    <span class="ty">glm::vec3</span> normal(
+        -face_normals[k * <span class="nu">3</span>],
+        -face_normals[k * <span class="nu">3</span> + <span class="nu">1</span>],
+        -face_normals[k * <span class="nu">3</span> + <span class="nu">2</span>]);
+
+    <span class="ty">float</span> d = <span class="fn">glm::dot</span>(normal, worldVertex);
+    <span class="ty">glm::vec4</span> plane(normal.x, normal.y, normal.z, d);
+    cell_planes.<span class="fn">push_back</span>(plane);
+
+    face_start += face_size + <span class="nu">1</span>;
+}</pre>
+      </div>
+    </section>
+
+    <hr class="section-divider" />
+
+    <!-- ── FRACTURING ── -->
+    <section>
+      <div class="section-heading">
+        <h2>Fracturing</h2>
+      </div>
+      <div class="prose">
+        <p>
+          With Voronoi planes ready, the Fracturer applies them to produce debris pieces. For each cell it
+          takes a fresh copy of the original mesh and progressively clips it against every plane in that cell's
+          list, keeping only the positive side each time. What remains is the geometry belonging to that cell.
+        </p>
+      </div>
+
+      <div class="code-block">
+        <div class="code-label">Fracturer.cpp — Per-cell clipping loop</div>
+        <pre><span class="kw">const auto</span>&amp; cell = cellPlanes[k];
+<span class="ty">std::vector</span>&lt;<span class="ty">glm::vec3</span>&gt; currentPositions = m_mesh-&gt;<span class="fn">GetPositions</span>();
+<span class="ty">std::vector</span>&lt;<span class="ty">uint16_t</span>&gt; currentIndices  = m_mesh-&gt;<span class="fn">GetIndices</span>();
+
+<span class="kw">for</span> (<span class="ty">size_t</span> j = <span class="nu">0</span>; j &lt; cell.<span class="fn">size</span>(); j++)
+{
+    <span class="kw">const auto</span>&amp; plane = cell[j];
+    <span class="ty">CMesh</span> cmesh;
+    cmesh.<span class="fn">FillDataCMesh</span>(currentPositions, currentIndices);
+    cmesh.<span class="fn">Clip</span>(plane, <span class="ty">ClipMode</span>::Positive);
+    cmesh.<span class="fn">GetPositiveData</span>(currentPositions, currentIndices);
+}</pre>
+      </div>
+
+      <div class="prose">
+        <p>
+          Once all cells are processed, each resulting piece is handed to Jolt as a convex hull collision shape
+          and added to the scene as an independent physics body.
+        </p>
+      </div>
+
+      <div class="img-placeholder">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+        <span>fracture output in-engine</span>
+      </div>
+    </section>
+
+    <hr class="section-divider" />
+
+    <!-- ── OPTIMIZATION ── -->
+    <section>
+      <div class="section-heading">
+        <h2>Optimization</h2>
+      </div>
+
+      <div class="stat-row">
+        <div class="stat-card">
+          <div class="num">78%</div>
+          <div class="desc">overall speedup over the unoptimized baseline</div>
+        </div>
+        <div class="stat-card">
+          <div class="num">~4.5×</div>
+          <div class="desc">average throughput gain from multithreading alone</div>
+        </div>
+        <div class="stat-card">
+          <div class="num">~20ms</div>
+          <div class="desc">fracture time per object, down from ~200ms</div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <p>
+          Optimization was a core part of the project. Every clip operation touches every vertex and edge in
+          the mesh, and Voronoi fracturing does dozens of cuts per cell — the naive approach had no chance of
+          holding at runtime.
+        </p>
+      </div>
+
+      <div class="section-heading">
+        <h3>Convex Hull Simplification</h3>
+      </div>
+      <div class="prose">
+        <p>
+          Raw fracture output can carry a lot of geometry, especially on cut faces. Rather than feeding the
+          rendered mesh directly to the physics engine, each piece is run through Jolt's
+          <code style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent)">ConvexHullShapeSettings</code>
+          after fracturing, building a simplified convex hull from the vertices. This also serves as the point
+          where normals are recalculated as flat ones, improving shading without incurring extra storage cost.
+        </p>
+      </div>
+
+      <div class="section-heading">
+        <h3>Multithreading</h3>
+      </div>
+      <div class="prose">
+        <p>
+          Each Voronoi cell is fully independent — it works on its own copy of the mesh data and writes to its
+          own output slot. No shared state, no locking required. The only constraint is that anything touching
+          OpenGL must stay on the main thread, so mesh upload and physics body creation are deferred until all
+          worker threads finish.
+        </p>
+      </div>
+
+      <div class="thread-diagram" aria-label="Thread model diagram">
+        <div class="thread-row">
+          <span class="thread-label">Worker 0</span>
+          <div class="thread-bar bar-worker" style="width:220px">Voronoi clip · cell 0–N/4</div>
+        </div>
+        <div class="thread-row">
+          <span class="thread-label">Worker 1</span>
+          <div class="thread-bar bar-worker" style="width:210px">Voronoi clip · cell N/4–N/2</div>
+        </div>
+        <div class="thread-row">
+          <span class="thread-label">Worker 2</span>
+          <div class="thread-bar bar-worker" style="width:225px">Voronoi clip · cell N/2–3N/4</div>
+        </div>
+        <div class="thread-row">
+          <span class="thread-label">Worker 3</span>
+          <div class="thread-bar bar-worker" style="width:215px">Voronoi clip · cell 3N/4–N</div>
+        </div>
+        <div class="thread-row" style="margin-top:16px">
+          <span class="thread-label">Main</span>
+          <div class="thread-bar bar-main" style="width:80px;margin-right:8px">wait</div>
+          <div class="thread-bar bar-defer" style="width:160px">GL upload · Jolt bodies</div>
+        </div>
+      </div>
+
+    </section>
+
+    <hr class="section-divider" />
+
+    <!-- ── FOOTER ── -->
+    <footer>
+      <div style="color:var(--muted)">
+        Real-Time Procedural Fracturing &nbsp;·&nbsp; C++ / OpenGL / Jolt / Voro++
+      </div>
+    </footer>
+
+  </div>
+</main>
+
+<script>
+  // Reading progress bar
+  const bar = document.getElementById('progress-bar');
+  window.addEventListener('scroll', () => {
+    const scrollTop = window.scrollY;
+    const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+    bar.style.width = (docHeight > 0 ? (scrollTop / docHeight) * 100 : 0) + '%';
+  }, { passive: true });
+</script>
+
+</body>
+</html>
