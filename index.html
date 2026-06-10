@@ -445,10 +445,13 @@
     <!-- ── INTRO ── -->
     <section class="prose">
       <p>
-        The goal of this project was a flexible, reusable destruction system that works on any mesh at runtime
-        — no precalculations, no per-asset preparation. That constraint pushed me toward real-time fracturing
-        rather than precomputed, which meant performance had to be treated as a first-class concern from the start.
-        Heavy profiling and several rounds of targeted optimization were what made it viable.
+        For this project I worked on creating a real time destruction system applicable to any tipe of mesh, focusing on the 
+        optimization aspect a lot, as my main goal was to make this program as flexible and reusable as possible. That is why 
+        went for real time fracturing rather than precomputed: this way any mesh can be used easily without needing any 
+        precalculations, as well making it versatile for generating different fracture geometry. However to achieve this I 
+        had to focus heavily on performace, testing the systems's limit with multiple stress tests. I will include a small 
+        section on optimization, however this part is very engine specific and was a result of in depth profiling, which 
+        might be different based on the starting point that's being used.
       </p>
     </section>
 
@@ -839,4 +842,3 @@
 
 </body>
 </html>
-dddddddddddddddddddddddddddddddddddddddddddddd
