@@ -185,5 +185,3 @@ The second was multithreading the fracture generation. Each Voronoi cell is comp
 Thanks to these optimizations, plus some engine specific profiling, I was able to speed up my system of roughly 78%, which made it stable enough to hold multiple fractures at runtime, effectively achieving my initial goal.
 
 <video controls src="BEE 2026-05-06 08-06-36_Trim (2).mp4" title="Title"></video>
-
-![alt text](<Annotation 2026-06-09 130251.png>)
